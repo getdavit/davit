@@ -1,0 +1,24 @@
+FROM golang:1.22-alpine AS builder
+
+RUN apk add --no-cache git
+
+WORKDIR /app
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+ARG GOOS=linux
+ARG GOARCH=amd64
+ARG VERSION=dev
+
+RUN CGO_ENABLED=0 GOOS=${GOOS} GOARCH=${GOARCH} \
+    go build \
+    -ldflags="-s -w -X github.com/getdavit/davit/internal/version.Version=${VERSION}" \
+    -o /out/davit \
+    ./cmd/davit
+
+FROM scratch
+COPY --from=builder /out/davit /davit
+ENTRYPOINT ["/davit"]
