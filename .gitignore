@@ -1,0 +1,30 @@
+# Compiled binaries
+dist/
+docker/test/davit
+
+# SQLite databases (created if davit is run locally during development)
+*.db
+*.db-shm
+*.db-wal
+
+# SSH key files — never commit private keys
+# (davit agent key create writes these to the current directory)
+*.pem
+davit-agent.pub
+
+# Environment variable files
+.env
+.env.*
+
+# Claude Code — not relevant to project contributors
+.claude/
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
