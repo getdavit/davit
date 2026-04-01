@@ -40,6 +40,13 @@ type AgentKey struct {
 	RevokedAt   *time.Time
 }
 
+// EnvVar is a stored (encrypted) environment variable for an app.
+type EnvVar struct {
+	AppName   string
+	Key       string
+	UpdatedAt time.Time
+}
+
 // OperationLog is a single entry in the append-only audit log.
 type OperationLog struct {
 	ID         int64

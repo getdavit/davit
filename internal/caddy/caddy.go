@@ -111,6 +111,17 @@ func (c *Client) RemoveRoute(appName string) error {
 	return nil
 }
 
+// RouteExists returns true if a route with @id "davit_<appName>" exists in Caddy.
+func (c *Client) RouteExists(appName string) bool {
+	id := "davit_" + appName
+	resp, err := c.do("GET", "/id/"+id, nil)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == 200
+}
+
 // GetCerts returns the list of TLS certificates Caddy is managing.
 func (c *Client) GetCerts() ([]CertInfo, error) {
 	resp, err := c.do("GET", "/config/apps/tls/certificates/automate", nil)

@@ -181,6 +181,11 @@ func (m *Manager) Deploy(opts DeployOptions) (DeployResult, error) {
 		}
 	}
 
+	// Write .env file from encrypted DB vars (idempotent; empty file is fine).
+	if err := m.writeEnvFile(app.Name, appDir); err != nil {
+		return DeployResult{}, err
+	}
+
 	// Resolve compose file path
 	composeFilePath := filepath.Join(repoDir, app.ComposeFile)
 	if _, err := os.Stat(composeFilePath); os.IsNotExist(err) {

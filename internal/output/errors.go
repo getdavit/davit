@@ -27,6 +27,8 @@ const (
 	ErrStateDBError        ErrorCode = "STATE_DB_ERROR"
 	ErrConfigInvalid       ErrorCode = "CONFIG_INVALID"
 	ErrInternalError       ErrorCode = "INTERNAL_ERROR"
+	ErrDockerStopFailed    ErrorCode = "DOCKER_STOP_FAILED"
+	ErrEnvKeyNotFound      ErrorCode = "ENV_KEY_NOT_FOUND"
 )
 
 // ExitCode returns the OS exit code for a given error code.
@@ -76,6 +78,10 @@ func ExitCode(code ErrorCode) int {
 		return 50
 	case ErrConfigInvalid:
 		return 51
+	case ErrDockerStopFailed:
+		return 35
+	case ErrEnvKeyNotFound:
+		return 26
 	default:
 		return 99
 	}

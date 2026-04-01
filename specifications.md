@@ -1520,12 +1520,12 @@ Exit code conventions:
 - [ ] Agent SSH key creation and forced-command installation
 
 ### v0.2 — App Lifecycle
-- [ ] `davit app stop/start/restart/remove`
-- [ ] `davit app env` (encrypted storage + redeploy)
-- [ ] Generated `docker-compose.yml` for auto-detected app types
-- [ ] Container health check polling
-- [ ] `davit logs <name>`
-- [ ] `davit diagnose <name>`
+- [x] `davit app stop/start/restart/remove`
+- [x] `davit app env` (encrypted storage + redeploy)
+- [x] Generated `docker-compose.yml` for auto-detected app types
+- [x] Container health check polling
+- [x] `davit logs <name>`
+- [x] `davit diagnose <name>`
 
 ### v0.3 — Git Automation
 - [ ] `davit watch enable/disable/status`

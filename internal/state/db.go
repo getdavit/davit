@@ -274,6 +274,124 @@ func (db *DB) ListAgentKeys() ([]AgentKey, error) {
 
 // --- operation_log ---
 
+// RemoveApp soft-deletes an app by setting removed_at and status to removed.
+func (db *DB) RemoveApp(name string) error {
+	_, err := db.conn.Exec(
+		`UPDATE apps SET status = 'removed', removed_at = ? WHERE name = ?`,
+		time.Now().UTC(), name,
+	)
+	return err
+}
+
+// --- app_env ---
+
+// SetEnvVar upserts an encrypted environment variable for an app.
+func (db *DB) SetEnvVar(appName, key string, valueEncrypted []byte) error {
+	_, err := db.conn.Exec(
+		`INSERT INTO app_env (app_name, key, value_encrypted, updated_at)
+		 VALUES (?, ?, ?, ?)
+		 ON CONFLICT(app_name, key) DO UPDATE SET value_encrypted = excluded.value_encrypted, updated_at = excluded.updated_at`,
+		appName, key, valueEncrypted, time.Now().UTC(),
+	)
+	return err
+}
+
+// GetEnvVar returns the encrypted value for a key, or nil if not found.
+func (db *DB) GetEnvVar(appName, key string) ([]byte, error) {
+	var val []byte
+	err := db.conn.QueryRow(
+		`SELECT value_encrypted FROM app_env WHERE app_name = ? AND key = ?`,
+		appName, key,
+	).Scan(&val)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return val, err
+}
+
+// ListEnvVars returns all env var metadata (no values) for an app, ordered by key.
+func (db *DB) ListEnvVars(appName string) ([]EnvVar, error) {
+	rows, err := db.conn.Query(
+		`SELECT app_name, key, updated_at FROM app_env WHERE app_name = ? ORDER BY key`,
+		appName,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var vars []EnvVar
+	for rows.Next() {
+		var v EnvVar
+		var updatedAt string
+		if err := rows.Scan(&v.AppName, &v.Key, &updatedAt); err != nil {
+			return nil, err
+		}
+		v.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+		vars = append(vars, v)
+	}
+	return vars, rows.Err()
+}
+
+// DeleteEnvVar removes an env var. Returns true if the key existed.
+func (db *DB) DeleteEnvVar(appName, key string) (bool, error) {
+	res, err := db.conn.Exec(`DELETE FROM app_env WHERE app_name = ? AND key = ?`, appName, key)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// AllEnvVarsEncrypted returns all encrypted env vars for an app (used to write .env file).
+func (db *DB) AllEnvVarsEncrypted(appName string) (map[string][]byte, error) {
+	rows, err := db.conn.Query(
+		`SELECT key, value_encrypted FROM app_env WHERE app_name = ? ORDER BY key`,
+		appName,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make(map[string][]byte)
+	for rows.Next() {
+		var k string
+		var v []byte
+		if err := rows.Scan(&k, &v); err != nil {
+			return nil, err
+		}
+		result[k] = v
+	}
+	return result, rows.Err()
+}
+
+// RecentDeployments returns the last N deployments for an app, newest first.
+func (db *DB) RecentDeployments(appName string, limit int) ([]Deployment, error) {
+	rows, err := db.conn.Query(
+		`SELECT id, app_name, commit_sha, COALESCE(commit_message,''), status,
+		        COALESCE(error_code,''), COALESCE(duration_ms,0), deployed_at
+		 FROM deployments WHERE app_name = ? ORDER BY deployed_at DESC LIMIT ?`,
+		appName, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var deployments []Deployment
+	for rows.Next() {
+		var d Deployment
+		var deployedAt string
+		if err := rows.Scan(&d.ID, &d.AppName, &d.CommitSHA, &d.CommitMessage,
+			&d.Status, &d.ErrorCode, &d.DurationMS, &deployedAt); err != nil {
+			return nil, err
+		}
+		d.DeployedAt, _ = time.Parse(time.RFC3339, deployedAt)
+		deployments = append(deployments, d)
+	}
+	return deployments, rows.Err()
+}
+
+// --- operation_log ---
+
 func (db *DB) AppendLog(e OperationLog) error {
 	_, err := db.conn.Exec(
 		`INSERT INTO operation_log
