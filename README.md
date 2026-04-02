@@ -235,7 +235,7 @@ To build manually:
 docker run --rm \
   -v "$(pwd)":/app -w /app \
   -e CGO_ENABLED=0 -e GOOS=linux -e GOARCH=amd64 \
-  golang:1.22-alpine \
+  golang:1.25-alpine \
   go build -o dist/davit-linux-amd64 ./cmd/davit
 ```
 
