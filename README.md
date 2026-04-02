@@ -11,9 +11,9 @@ It ships as a **single static binary** with two interaction surfaces:
 
 ## Current status
 
-**v0.1 — Foundation** (current)
+**v0.2 — App lifecycle, env vars, logs, diagnose** (current)
 
-The foundation milestone delivers a fully provisionable server and a working application deployment pipeline.
+Full application lifecycle management: stop, start, restart, and remove applications. Encrypted-at-rest environment variables. Log tailing and streaming. Comprehensive health diagnostics.
 
 ## Quick start
 
@@ -76,9 +76,13 @@ Supported flags:
 ### Applications
 
 ```
-davit app create <name>   Register an application (does not deploy)
-davit app deploy <name>   Deploy (git sync + docker compose + Caddy route)
-davit app list            List all applications
+davit app create <name>    Register an application (does not deploy)
+davit app deploy <name>    Deploy (git sync + docker compose + Caddy route)
+davit app list             List all applications
+davit app stop <name>      Stop a running application
+davit app start <name>     Start a stopped application
+davit app restart <name>   Restart a running application
+davit app remove <name>    Remove an application (stops containers, soft-deletes from DB)
 ```
 
 `app create` flags:
@@ -99,6 +103,55 @@ davit app list            List all applications
 --timeout int   Seconds to wait for health check. Default: 60
 --force         Deploy even if commit is unchanged
 ```
+
+`app start` / `app restart` flags:
+
+```
+--timeout int   Seconds to wait for health check. Default: 60
+```
+
+`app remove` flags:
+
+```
+--purge-data   Also delete app data directory and Docker volumes
+```
+
+### Environment variables
+
+Environment variables are encrypted at rest in the state database.
+
+```
+davit app env set <app> <KEY> <VALUE>   Set an encrypted environment variable
+davit app env get <app> <KEY>           Get the value of an environment variable
+davit app env list <app>                List all variable keys (values are not shown)
+davit app env unset <app> <KEY>         Remove an environment variable
+```
+
+`app env set` flags:
+
+```
+--redeploy        Trigger a redeploy after setting the variable
+--timeout int     Deploy timeout in seconds (used with --redeploy). Default: 60
+```
+
+### Logs
+
+```
+davit logs <app>   Tail or stream application log output
+```
+
+```
+--tail int    Number of log lines to show from the end. Default: 100
+--follow      Stream new log lines as they arrive
+```
+
+### Diagnose
+
+```
+davit diagnose <app>   Show a comprehensive health report for an application
+```
+
+Returns a JSON health report covering container state, recent log output, Caddy routing, and environment variable metadata.
 
 ### Agent keys
 
@@ -125,7 +178,7 @@ ssh -i davit-agent.pem root@your-server davit app list
 ssh -i davit-agent.pem root@your-server davit app deploy myapi
 
 # Read logs
-ssh -i davit-agent.pem root@your-server davit logs myapi --lines 200
+ssh -i davit-agent.pem root@your-server davit logs myapi --tail 200
 ```
 
 All output is JSON. The forced-command entry in `authorized_keys` prevents the agent from accessing a shell.
@@ -212,7 +265,7 @@ scripts/            build.sh, test.sh
 | Version | Scope |
 |---|---|
 | **v0.1** | **Foundation** — provisioner, app deploy, agent keys ✓ |
-| v0.2 | App lifecycle (stop/start/restart/remove), env vars, health check, logs, diagnose |
+| **v0.2** | **App lifecycle, env vars, logs, diagnose** ✓ |
 | v0.3 | Git automation — polling daemon, webhook receiver |
 | v0.4 | Interactive TUI (Bubble Tea) |
 | v0.5 | Hardening, cert commands, audit log, install script |
