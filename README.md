@@ -37,7 +37,7 @@ davit app create myapi --repo https://github.com/org/myapi --domain api.example.
 davit app deploy myapi
 ```
 
-## Commands (v0.1)
+## Commands
 
 All commands produce JSON by default when stdout is not a terminal, and human-readable output when it is. Use `--json` or `--pretty` to override.
 
@@ -245,7 +245,7 @@ docker run --rm \
 cmd/davit/          Entry point
 internal/
   agent/            Ed25519 SSH key generation + authorized_keys management
-  app/              Application lifecycle (create, deploy, list)
+  app/              Application lifecycle (create, deploy, stop, start, restart, remove, env)
   caddy/            Caddy Admin API client
   cli/              Cobra command definitions
   config/           TOML configuration loading
