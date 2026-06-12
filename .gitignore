@@ -28,3 +28,5 @@ davit-agent.pub
 .vscode/
 *.swp
 *.swo
+davit
+davit.test
