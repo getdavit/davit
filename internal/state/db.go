@@ -142,6 +142,20 @@ func (db *DB) UpdateAppStatus(name, status string) error {
 	return err
 }
 
+// UpdateAppWatch updates the watch settings for an application.
+func (db *DB) UpdateAppWatch(name string, enabled bool, pollInterval int, useWebhook bool) error {
+	_, err := db.conn.Exec(`
+		UPDATE apps SET 
+			watch_enabled = ?,
+			watch_poll_interval = ?,
+			watch_use_webhook = ?,
+			last_checked_at = ?
+		WHERE name = ?`,
+		enabled, pollInterval, useWebhook, time.Now().UTC(), name,
+	)
+	return err
+}
+
 func (db *DB) AppExists(name string) (bool, error) {
 	var count int
 	err := db.conn.QueryRow(`SELECT COUNT(*) FROM apps WHERE name = ? AND removed_at IS NULL`, name).Scan(&count)

@@ -16,6 +16,13 @@ type App struct {
 	Status        string // created|running|stopped|removed
 	CreatedAt     time.Time
 	RemovedAt     *time.Time
+
+	// Watch settings for Git automation
+	WatchEnabled      bool
+	WatchPollInterval int    // seconds, 0 = disabled
+	WatchUseWebhook   bool   // if true, use webhook instead of polling
+	LastCommitSHA     string // last seen commit SHA
+	LastCheckedAt     time.Time // last time we checked for changes
 }
 
 // Deployment is a record of a single deploy operation.
