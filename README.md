@@ -7,21 +7,15 @@ Davit is a self-hosted deployment manager for containerised applications. Instal
 It ships as a **single static binary** with two interaction surfaces:
 
 - A **JSON CLI** designed to be driven by AI agents and automation over SSH.
-- An **interactive TUI** for human operators (planned for v0.4).
+- An **interactive TUI** for human operators.
 
 ## Current status
 
-**v0.3 — Git automation** (current)
+**v0.4 — Interactive TUI (Bubble Tea)** (current)
 
-Full application lifecycle management plus automatic redeployment when
-watched repositories change. Two modes: polling scheduler and webhook
-receiver (GitHub, GitLab, generic). A background daemon handles both,
-managed as a hardened systemd service. See [SECURITY.md](./SECURITY.md)
-for the security posture and known design tradeoffs.
+A keyboard-navigable terminal user interface for human operators. Launch with `davit tui`. Features a main dashboard showing apps and server health, an app detail screen with action shortcuts, and a guided setup wizard for first-run provisioning.
 
-Previous versions: [v0.2](/../../releases/tag/v0.2.0) — app lifecycle,
-encrypted env vars, logs, diagnose. [v0.1](/../../releases/tag/v0.1.0) —
-foundation, provisioning, deploy, agent keys.
+Previous versions: [v0.3](/../../releases/tag/v0.3.0) — Git automation with polling scheduler and webhook receiver. [v0.2](/../../releases/tag/v0.2.0) — app lifecycle, encrypted env vars, logs, diagnose. [v0.1](/../../releases/tag/v0.1.0) — foundation, provisioning, deploy, agent keys.
 
 ## Quick start
 
@@ -190,6 +184,38 @@ the `X-Hub-Signature-256` header.
 The daemon is managed as a systemd service (`davit-watcher.service`). It
 auto-starts when the first app is watched and auto-stops when the last is
 disabled.
+
+### TUI (v0.4)
+
+```
+davit tui   Launch the interactive terminal user interface
+```
+
+Launches a keyboard-navigable Bubble Tea TUI. When the server hasn't been
+provisioned yet, the setup wizard guides you through the hardening steps.
+Once provisioned, the main dashboard shows all applications and server
+health at a glance.
+
+**Dashboard key bindings:**
+
+| Key | Action |
+|---|---|
+| `↑/↓` or `j`/`k` | Navigate list |
+| `Enter` | Select app / confirm |
+| `Esc`/`q` | Back / cancel |
+| `?` | Context help |
+| `Ctrl+C` | Exit to shell |
+
+**App detail screen:**
+
+| Key | Action |
+|---|---|
+| `s` | Start selected app |
+| `r` | Restart selected app |
+| `d` | Delete selected app |
+| `Esc`/`q` | Back to dashboard |
+| `?` | Context help |
+| `Ctrl+C` | Exit to shell |
 
 ### Agent keys
 

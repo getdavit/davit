@@ -81,7 +81,7 @@ func Load(path string) (*Config, error) {
 
 // Write serialises cfg to path in TOML format. The directory must already exist.
 func Write(cfg *Config, path string) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0640)
 	if err != nil {
 		return err
 	}

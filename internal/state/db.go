@@ -1,8 +1,10 @@
 package state
 
 import (
+	"crypto/rand"
 	"database/sql"
 	"embed"
+	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"sort"
@@ -182,8 +184,12 @@ func (db *DB) UpdateAppWatch(name string, enabled bool, pollInterval int, useWeb
 		// Generate a random token for webhook if needed
 		var webhookToken string
 		if useWebhook {
-			// Generate a simple random token (in production, use crypto/rand)
-			webhookToken = fmt.Sprintf("%x", time.Now().UnixNano())
+			// Generate a cryptographically secure random token
+			token := make([]byte, 32)
+			if _, err := rand.Read(token); err != nil {
+				return fmt.Errorf("failed to generate webhook token: %w", err)
+			}
+			webhookToken = hex.EncodeToString(token)
 		} else {
 			webhookToken = ""
 		}
