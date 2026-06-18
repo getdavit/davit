@@ -5,6 +5,34 @@ All notable changes to Davit are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.4.0] — 2025-06-18
+
+### Added
+- **Interactive TUI (Bubble Tea)** — keyboard-navigable terminal interface
+  for human operators. Launch with `davit tui`.
+- **Dashboard screen** — overview of all apps with health status, server
+  information, and key metrics at a glance.
+- **App detail screen** — detailed view of a single app with actions
+  (deploy, stop, remove) and scrolling log-style output.
+- **5-step Setup Wizard** — auto-launches on first use when the server
+  hasn't been provisioned. Guides the operator through SSH key generation,
+  user creation, server init, and app configuration.
+- **Help overlay** — view keybindings in-context with `?`.
+- **New CLI command** — `davit tui` starts the interactive interface.
+- **Bubble Tea v1.3.10 + lipgloss v1.1.0** — violet/emerald/amber
+  color palette with responsive layout.
+
+### Security
+- Webhook token generation hardened from `time.Now().UnixNano()` to
+  `crypto/rand` (finding BE-1).
+- Config file permissions tightened from 0644 to 0640 (finding BE-4).
+- Full security review completed — see SECURITY.md for accepted tradeoffs.
+
+### Tests
+- 21 new TUI unit tests covering state transitions, screen rendering,
+  and navigation.
+- All 26 tests pass; `go vet` clean.
+
 ## [v0.3.0] — 2025-06-18
 
 ### Added
