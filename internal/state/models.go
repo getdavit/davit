@@ -47,6 +47,18 @@ type AgentKey struct {
 	RevokedAt   *time.Time
 }
 
+// Watcher represents a Git watcher configuration stored in the watchers table.
+type Watcher struct {
+	AppName            string
+	Method             string // "polling" or "webhook"
+	PollIntervalSeconds int
+	WebhookToken       string
+	WebhookSecret      string
+	LastCheckedAt      time.Time
+	LastCommitSHA      string
+	Status             string // "active" or "inactive"
+}
+
 // EnvVar is a stored (encrypted) environment variable for an app.
 type EnvVar struct {
 	AppName   string

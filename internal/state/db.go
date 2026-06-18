@@ -41,6 +41,13 @@ func (db *DB) Close() error {
 	return db.conn.Close()
 }
 
+// CountWatchedApps returns the number of apps with watch enabled.
+func (db *DB) CountWatchedApps() (int, error) {
+	var count int
+	err := db.conn.QueryRow(`SELECT COUNT(*) FROM watchers WHERE status = 'active'`).Scan(&count)
+	return count, err
+}
+
 // migrate applies all SQL migration files in lexicographic order.
 func (db *DB) migrate() error {
 	entries, err := fs.ReadDir(migrationFiles, "sql")
@@ -102,13 +109,18 @@ func (db *DB) CreateApp(a App) error {
 }
 
 func (db *DB) GetApp(name string) (App, error) {
-	row := db.conn.QueryRow(
-		`SELECT name, repo_url, branch, domain, container_port, internal_port,
-		        compose_file, build_context, COALESCE(deploy_key_path,''), status,
-		        created_at, removed_at
-		 FROM apps WHERE name = ? AND removed_at IS NULL`, name,
+	row := db.conn.QueryRow(`
+		SELECT 
+			a.name, a.repo_url, a.branch, a.domain, a.container_port, a.internal_port,
+			a.compose_file, a.build_context, a.deploy_key_path, a.status,
+			a.created_at, a.removed_at,
+			w.method, w.poll_interval_seconds, w.webhook_token, w.webhook_secret,
+			w.last_checked_at, w.last_commit_sha, w.status
+		FROM apps a
+		LEFT JOIN watchers w ON a.name = w.app_name
+		WHERE a.name = ? AND a.removed_at IS NULL`, name,
 	)
-	a, err := scanApp(row)
+	a, err := scanAppWithWatcher(row)
 	if err == sql.ErrNoRows {
 		return App{}, nil // caller checks app.Name == ""
 	}
@@ -116,11 +128,16 @@ func (db *DB) GetApp(name string) (App, error) {
 }
 
 func (db *DB) ListApps() ([]App, error) {
-	rows, err := db.conn.Query(
-		`SELECT name, repo_url, branch, domain, container_port, internal_port,
-		        compose_file, build_context, COALESCE(deploy_key_path,''), status,
-		        created_at, removed_at
-		 FROM apps WHERE removed_at IS NULL ORDER BY created_at`,
+	rows, err := db.conn.Query(`
+		SELECT 
+			a.name, a.repo_url, a.branch, a.domain, a.container_port, a.internal_port,
+			a.compose_file, a.build_context, a.deploy_key_path, a.status,
+			a.created_at, a.removed_at,
+			w.method, w.poll_interval_seconds, w.webhook_token, w.webhook_secret,
+			w.last_checked_at, w.last_commit_sha, w.status
+		FROM apps a
+		LEFT JOIN watchers w ON a.name = w.app_name
+		WHERE a.removed_at IS NULL ORDER BY created_at`,
 	)
 	if err != nil {
 		return nil, err
@@ -128,7 +145,7 @@ func (db *DB) ListApps() ([]App, error) {
 	defer rows.Close()
 	var apps []App
 	for rows.Next() {
-		a, err := scanApp(rows)
+		a, err := scanAppWithWatcher(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -144,15 +161,51 @@ func (db *DB) UpdateAppStatus(name, status string) error {
 
 // UpdateAppWatch updates the watch settings for an application.
 func (db *DB) UpdateAppWatch(name string, enabled bool, pollInterval int, useWebhook bool) error {
-	_, err := db.conn.Exec(`
-		UPDATE apps SET 
-			watch_enabled = ?,
-			watch_poll_interval = ?,
-			watch_use_webhook = ?,
-			last_checked_at = ?
-		WHERE name = ?`,
-		enabled, pollInterval, useWebhook, time.Now().UTC(), name,
-	)
+	// Check if app exists
+	exists, err := db.AppExists(name)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return fmt.Errorf("app %s not found", name)
+	}
+
+	if enabled {
+		// UPSERT watcher record
+		var method string
+		if useWebhook {
+			method = "webhook"
+		} else {
+			method = "polling"
+		}
+		
+		// Generate a random token for webhook if needed
+		var webhookToken string
+		if useWebhook {
+			// Generate a simple random token (in production, use crypto/rand)
+			webhookToken = fmt.Sprintf("%x", time.Now().UnixNano())
+		} else {
+			webhookToken = ""
+		}
+		
+		_, err = db.conn.Exec(`
+			INSERT INTO watchers (
+				app_name, method, poll_interval_seconds, webhook_token, webhook_secret, 
+				last_checked_at, last_commit_sha, status
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(app_name) DO UPDATE SET
+				method = excluded.method,
+				poll_interval_seconds = excluded.poll_interval_seconds,
+				webhook_token = excluded.webhook_token,
+				webhook_secret = excluded.webhook_secret,
+				last_checked_at = excluded.last_checked_at,
+				status = excluded.status
+		`, name, method, pollInterval, webhookToken, "", time.Now().UTC(), "", "active")
+	} else {
+		// Set watcher status to inactive when disabling (preserve configuration)
+		_, err = db.conn.Exec(`UPDATE watchers SET status = 'inactive' WHERE app_name = ?`, name)
+	}
+	
 	return err
 }
 
@@ -207,6 +260,66 @@ func scanApp(s scanner) (App, error) {
 		t, _ := time.Parse(time.RFC3339, *removedAt)
 		a.RemovedAt = &t
 	}
+	return a, nil
+}
+	
+func scanAppWithWatcher(s scanner) (App, error) {
+	var a App
+	var createdAt string
+	var removedAt *string
+	// Watcher fields (can be NULL from LEFT JOIN)
+	var method *string
+	var pollIntervalSeconds *int
+	var webhookToken *string
+	var webhookSecret *string
+	var lastCheckedAt *string // will parse to time.Time
+	var lastCommitSHA *string
+	var watcherStatus *string
+
+	err := s.Scan(
+		&a.Name, &a.RepoURL, &a.Branch, &a.Domain,
+		&a.ContainerPort, &a.InternalPort,
+		&a.ComposeFile, &a.BuildContext, &a.DeployKeyPath,
+		&a.Status, &createdAt, &removedAt,
+		&method, &pollIntervalSeconds, &webhookToken, &webhookSecret,
+		&lastCheckedAt, &lastCommitSHA, &watcherStatus,
+	)
+	if err != nil {
+		return a, err
+	}
+	a.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+	if removedAt != nil {
+		t, _ := time.Parse(time.RFC3339, *removedAt)
+		a.RemovedAt = &t
+	}
+
+	// Set watcher fields with defaults when NULL
+	if method != nil && *method == "webhook" {
+		a.WatchUseWebhook = true
+	} else {
+		a.WatchUseWebhook = false
+	}
+	if pollIntervalSeconds != nil {
+		a.WatchPollInterval = *pollIntervalSeconds
+	} else {
+		a.WatchPollInterval = 0
+	}
+	if watcherStatus != nil && *watcherStatus == "active" {
+		a.WatchEnabled = true
+	} else {
+		a.WatchEnabled = false
+	}
+	if lastCommitSHA != nil {
+		a.LastCommitSHA = *lastCommitSHA
+	} else {
+		a.LastCommitSHA = ""
+	}
+	if lastCheckedAt != nil {
+		a.LastCheckedAt, _ = time.Parse(time.RFC3339, *lastCheckedAt)
+	} else {
+		// Leave as zero value
+	}
+
 	return a, nil
 }
 
@@ -402,6 +515,80 @@ func (db *DB) RecentDeployments(appName string, limit int) ([]Deployment, error)
 		deployments = append(deployments, d)
 	}
 	return deployments, rows.Err()
+}
+
+// --- watchers ---
+
+// GetActiveWatchers returns all watchers with status 'active'.
+func (db *DB) GetActiveWatchers() ([]Watcher, error) {
+	rows, err := db.conn.Query(`
+		SELECT app_name, method, poll_interval_seconds, webhook_token, webhook_secret,
+		       last_checked_at, last_commit_sha, status
+		FROM watchers WHERE status = 'active'
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var watchers []Watcher
+	for rows.Next() {
+		var w Watcher
+		var lastCheckedAt, lastCommitSHA *string
+		err := rows.Scan(
+			&w.AppName, &w.Method, &w.PollIntervalSeconds, &w.WebhookToken, &w.WebhookSecret,
+			&lastCheckedAt, &lastCommitSHA, &w.Status,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if lastCheckedAt != nil {
+			w.LastCheckedAt, _ = time.Parse(time.RFC3339, *lastCheckedAt)
+		}
+		if lastCommitSHA != nil {
+			w.LastCommitSHA = *lastCommitSHA
+		}
+		watchers = append(watchers, w)
+	}
+	return watchers, rows.Err()
+}
+
+// GetWatcher returns a single watcher by app name, or nil if not found.
+func (db *DB) GetWatcher(appName string) (*Watcher, error) {
+	row := db.conn.QueryRow(`
+		SELECT app_name, method, poll_interval_seconds, webhook_token, webhook_secret,
+		       last_checked_at, last_commit_sha, status
+		FROM watchers WHERE app_name = ?
+	`, appName)
+
+	var w Watcher
+	var lastCheckedAt, lastCommitSHA *string
+	err := row.Scan(
+		&w.AppName, &w.Method, &w.PollIntervalSeconds, &w.WebhookToken, &w.WebhookSecret,
+		&lastCheckedAt, &lastCommitSHA, &w.Status,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if lastCheckedAt != nil {
+		w.LastCheckedAt, _ = time.Parse(time.RFC3339, *lastCheckedAt)
+	}
+	if lastCommitSHA != nil {
+		w.LastCommitSHA = *lastCommitSHA
+	}
+	return &w, nil
+}
+
+// UpdateWatcherCommit updates the last_checked_at and last_commit_sha for a watcher.
+func (db *DB) UpdateWatcherCommit(appName, commitSHA string) error {
+	_, err := db.conn.Exec(
+		`UPDATE watchers SET last_checked_at = ?, last_commit_sha = ? WHERE app_name = ?`,
+		time.Now().UTC().Format(time.RFC3339), commitSHA, appName,
+	)
+	return err
 }
 
 // --- operation_log ---
