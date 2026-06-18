@@ -11,9 +11,17 @@ It ships as a **single static binary** with two interaction surfaces:
 
 ## Current status
 
-**v0.2 — App lifecycle, env vars, logs, diagnose** (current)
+**v0.3 — Git automation** (current)
 
-Full application lifecycle management: stop, start, restart, and remove applications. Encrypted-at-rest environment variables. Log tailing and streaming. Comprehensive health diagnostics.
+Full application lifecycle management plus automatic redeployment when
+watched repositories change. Two modes: polling scheduler and webhook
+receiver (GitHub, GitLab, generic). A background daemon handles both,
+managed as a hardened systemd service. See [SECURITY.md](./SECURITY.md)
+for the security posture and known design tradeoffs.
+
+Previous versions: [v0.2](/../../releases/tag/v0.2.0) — app lifecycle,
+encrypted env vars, logs, diagnose. [v0.1](/../../releases/tag/v0.1.0) —
+foundation, provisioning, deploy, agent keys.
 
 ## Quick start
 
@@ -153,6 +161,36 @@ davit diagnose <app>   Show a comprehensive health report for an application
 
 Returns a JSON health report covering container state, recent log output, Caddy routing, and environment variable metadata.
 
+### Watch (v0.3)
+
+Automatic redeployment when a watched Git repository changes. Two modes:
+
+```
+davit watch enable <app>     Enable Git watching for an application
+davit watch disable <app>    Disable Git watching for an application
+davit watch status [app]     Show watch configuration and service status
+davit daemon                 Run the background watcher daemon
+```
+
+`watch enable` flags:
+
+```
+--poll-interval int   Polling interval in seconds. Default: 30
+--webhook             Use webhook mode instead of polling
+```
+
+In **polling mode**, the daemon checks the remote repository every N seconds.
+When a new commit is detected, the app is automatically redeployed.
+
+In **webhook mode**, an HTTP server listens on `127.0.0.1:2020` for push
+events from GitHub, GitLab, or generic Git providers. Setup instructions
+are printed on enable. HMAC-SHA256 signature validation is supported via
+the `X-Hub-Signature-256` header.
+
+The daemon is managed as a systemd service (`davit-watcher.service`). It
+auto-starts when the first app is watched and auto-stops when the last is
+disabled.
+
 ### Agent keys
 
 ```
@@ -197,7 +235,7 @@ All output is JSON. The forced-command entry in `authorized_keys` prevents the a
 │   └──────┬───────┘                                       │
 │          │                                               │
 │   ┌──────▼──────┐   ┌──────────────────────────────┐    │
-│   │  JSON CLI   │   │  Interactive TUI (v0.4)       │    │
+│   │  JSON CLI   │   │  Interactive TUI            │    │
 │   │  (agents)   │   │  Bubble Tea                  │    │
 │   └─────────────┘   └──────────────────────────────┘    │
 └─────────────────────────────────────────────────────────┘
@@ -256,6 +294,7 @@ internal/
   provisioner/      Server provisioning steps
   state/            SQLite state store and migrations
   version/          Build-time version string
+  watch/            Git polling scheduler and webhook receiver
 docker/             Dockerfile for reproducible builds
 scripts/            build.sh, test.sh
 ```
@@ -266,7 +305,7 @@ scripts/            build.sh, test.sh
 |---|---|
 | **v0.1** | **Foundation** — provisioner, app deploy, agent keys ✓ |
 | **v0.2** | **App lifecycle, env vars, logs, diagnose** ✓ |
-| v0.3 | Git automation — polling daemon, webhook receiver |
+| **v0.3** | **Git automation** — polling daemon, webhook receiver ✓ |
 | v0.4 | Interactive TUI (Bubble Tea) |
 | v0.5 | Hardening, cert commands, audit log, install script |
 | v1.0 | ARM64 builds, test suite, public docs |
