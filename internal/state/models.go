@@ -16,6 +16,13 @@ type App struct {
 	Status        string // created|running|stopped|removed
 	CreatedAt     time.Time
 	RemovedAt     *time.Time
+
+	// Watch settings for Git automation
+	WatchEnabled      bool
+	WatchPollInterval int    // seconds, 0 = disabled
+	WatchUseWebhook   bool   // if true, use webhook instead of polling
+	LastCommitSHA     string // last seen commit SHA
+	LastCheckedAt     time.Time // last time we checked for changes
 }
 
 // Deployment is a record of a single deploy operation.
@@ -38,6 +45,18 @@ type AgentKey struct {
 	CreatedAt   time.Time
 	LastUsedAt  *time.Time
 	RevokedAt   *time.Time
+}
+
+// Watcher represents a Git watcher configuration stored in the watchers table.
+type Watcher struct {
+	AppName            string
+	Method             string // "polling" or "webhook"
+	PollIntervalSeconds int
+	WebhookToken       string
+	WebhookSecret      string
+	LastCheckedAt      time.Time
+	LastCommitSHA      string
+	Status             string // "active" or "inactive"
 }
 
 // EnvVar is a stored (encrypted) environment variable for an app.
