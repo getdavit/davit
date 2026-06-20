@@ -5,6 +5,22 @@ All notable changes to Davit are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.4.1] — 2026-06-20
+
+### Fixed
+- **`n` (New app)** — CRITICAL: key binding was defined but handler was missing from the dashboard. Now opens a 2-step creation wizard (app name → repo URL) with text inputs, validation, and result display.
+- **`!` (Remove)** — HIGH: handler was missing from App Detail screen. Now shows a confirmation screen before calling `mgr.Remove()`, with y/n/esc for safe cancellation.
+- **`e` (Env vars)** — HIGH: handler was missing from App Detail screen. Now calls `mgr.EnvList()` and displays keys with timestamps in a scrollable viewport.
+- **`l` (Logs)** — HIGH: previous handler was a no-op placeholder. Now calls `mgr.Logs()` to fetch the last 50 log lines into a scrollable viewport.
+- **`/` (Filter)** — MEDIUM: previous handler was a no-op placeholder. Now opens a text input; filters apps by name, domain, and status (case-insensitive); filter persists across refreshes.
+- **`r` (Refresh) / `R` (Restart) collision** — LOW: both were bound to `"r"`, so Restart could never fire. Restart changed to `"R"` (uppercase); Refresh keeps `"r"`.
+- **`r` (Refresh) on App Detail** — LOW: refresh handler added to App Detail screen (was only on Dashboard).
+- **`R` (Restart) handler** — LOW: Restart key binding existed but handler was missing from App Detail. Added `restartAppCmd` calling `mgr.Restart()` with the correct key binding.
+- **Help overlay** — LOW: `renderHelp()` was using hard-coded strings. Now dynamically iterates `m.keys.FullHelp()` — any key binding change auto-propagates to help.
+
+### Changed
+- TUI README key binding tables updated to reflect all working shortcuts.
+
 ## [v0.4.0] — 2025-06-18
 
 ### Added

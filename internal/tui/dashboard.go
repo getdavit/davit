@@ -72,10 +72,19 @@ func (m *Model) renderAppList() string {
 		Render("APPS")
 	sections = append(sections, appHeader)
 
-	if len(m.apps) == 0 {
-		sections = append(sections, "  No applications deployed.\n  Press [n] to create one.")
+	displayApps := m.filteredApps
+	if displayApps == nil {
+		displayApps = m.apps
+	}
+
+	if len(displayApps) == 0 {
+		if m.filterQuery != "" {
+			sections = append(sections, fmt.Sprintf("  No apps matching '%s'.", m.filterQuery))
+		} else {
+			sections = append(sections, "  No applications deployed.\n  Press [n] to create one.")
+		}
 	} else {
-		for i, app := range m.apps {
+		for i, app := range displayApps {
 			icon := StatusIcon(app.status)
 			line := fmt.Sprintf("%s %-20s %-35s %-10s %s",
 				icon,
@@ -131,12 +140,13 @@ func healthIcon(ok bool) string {
 func (m *Model) renderFooter() string {
 	actions := []string{}
 	actionSpecs := []struct {
-		key string
+		key  string
 		desc string
 	}{
 		{"n", "New app"},
+		{"/", "Filter"},
 		{"d", "Deploy"},
-		{"l", "Logs"},
+		{"r", "Refresh"},
 		{"s", "Server"},
 		{"?", "Help"},
 	}
@@ -152,32 +162,26 @@ func (m *Model) renderFooter() string {
 	)
 }
 
-// renderHelp renders the help overlay.
+// renderHelp renders the help overlay using keymap bindings.
 func (m *Model) renderHelp() string {
-	return lipgloss.JoinVertical(lipgloss.Left,
-		TitleStyle.Render("Help"),
-		"",
-		"Navigation:",
-		"  ↑/k, ↓/j      Move cursor up/down",
-		"  Enter          Select / confirm",
-		"  Esc/q          Back / cancel",
-		"  ?              Toggle this help",
-		"  Ctrl+C         Exit to shell",
-		"",
-		"Actions:",
-		"  r              Refresh current view",
-		"  n              New (app, key, etc.)",
-		"  d              Deploy selected app",
-		"  l              View logs",
-		"  s              Server status",
-		"  x              Stop app",
-		"  t              Start app",
-		"  !              Remove app",
-		"  e              Environment variables",
-		"  /              Filter / search",
-		"",
-		"Press [?] or [Esc] to close.",
-	)
+	keyStrs := m.keys.FullHelp()
+	var lines []string
+	lines = append(lines, TitleStyle.Render("Help"))
+	lines = append(lines, "")
+	lines = append(lines, "Navigation:")
+	for _, group := range keyStrs {
+		for _, b := range group {
+			helpKeys := strings.Join(b.Keys(), ", ")
+			helpText := b.Help().Desc
+			if helpText != "" {
+				lines = append(lines, fmt.Sprintf("  %-16s %s", helpKeys, helpText))
+			}
+		}
+	}
+	lines = append(lines, "")
+	lines = append(lines, HelpStyle.Render("Press [?] or [Esc] to close."))
+
+	return lipgloss.JoinVertical(lipgloss.Left, lines...)
 }
 
 // renderLoading renders a loading indicator.

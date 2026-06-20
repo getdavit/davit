@@ -91,6 +91,157 @@ func (m *Model) renderAppDetailContent() string {
 	)
 }
 
+// renderNewApp renders the new app creation screen.
+func (m *Model) renderNewApp() string {
+	var content string
+	switch m.newAppStep {
+	case 0:
+		nameInput := m.newAppNameInput.View()
+		errorMsg := ""
+		if m.newAppError != "" {
+			errorMsg = ErrorDialogStyle.Render("  " + m.newAppError)
+		}
+		content = lipgloss.JoinVertical(lipgloss.Left,
+			"",
+			TitleStyle.Render("Create New Application"),
+			"",
+			SubtitleStyle.Render("Step 1: Enter the app name"),
+			"",
+			"  App name: "+nameInput,
+			"",
+			errorMsg,
+			"",
+			HelpStyle.Render("[Enter] continue  [Esc] cancel"),
+		)
+	case 1:
+		repoInput := m.newAppRepoInput.View()
+		errorMsg := ""
+		if m.newAppError != "" {
+			errorMsg = ErrorDialogStyle.Render("  " + m.newAppError)
+		}
+		content = lipgloss.JoinVertical(lipgloss.Left,
+			"",
+			TitleStyle.Render("Create New Application"),
+			"",
+			SubtitleStyle.Render(fmt.Sprintf("Step 2: Enter the Git repository URL for '%s'", m.newAppNameInput.Value())),
+			"",
+			"  Git URL: "+repoInput,
+			"",
+			errorMsg,
+			"",
+			HelpStyle.Render("[Enter] create  [Esc] cancel"),
+		)
+	case 2:
+		resultMsg := m.newAppSuccessMsg
+		if m.newAppError != "" {
+			resultMsg = ErrorDialogStyle.Render("  " + m.newAppError)
+		}
+		content = lipgloss.JoinVertical(lipgloss.Left,
+			"",
+			TitleStyle.Render("Create New Application"),
+			"",
+			resultMsg,
+			"",
+			HelpStyle.Render("[Enter] or [Esc] back to dashboard"),
+		)
+	}
+
+	return m.renderInPanel(content)
+}
+
+// renderLogs renders the logs screen.
+func (m *Model) renderLogs() string {
+	if m.selectedApp == nil {
+		m.screen = screenDashboard
+		return m.renderDashboard()
+	}
+	header := TitleStyle.Render(fmt.Sprintf("Logs: %s", m.selectedApp.name))
+	var content string
+	if m.logsContent != "" {
+		content = m.logsContent
+	} else if m.logsError != "" {
+		content = ErrorDialogStyle.Render(m.logsError)
+	} else {
+		content = "  Loading logs..."
+	}
+	m.appViewport.SetContent(content)
+	return lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		"",
+		m.appViewport.View(),
+		"",
+		HelpStyle.Render("[Esc/q] back to app detail"),
+	)
+}
+
+// renderEnvVars renders the environment variables screen.
+func (m *Model) renderEnvVars() string {
+	if m.selectedApp == nil {
+		m.screen = screenDashboard
+		return m.renderDashboard()
+	}
+	header := TitleStyle.Render(fmt.Sprintf("Env Vars: %s", m.selectedApp.name))
+	var content string
+	if m.envContent != "" {
+		content = m.envContent
+	} else if m.envError != "" {
+		content = ErrorDialogStyle.Render(m.envError)
+	} else {
+		content = "  Loading environment variables..."
+	}
+	m.appViewport.SetContent(content)
+	return lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		"",
+		m.appViewport.View(),
+		"",
+		HelpStyle.Render("[Esc/q] back to app detail"),
+	)
+}
+
+// renderRemoveConfirm renders the remove confirmation screen.
+func (m *Model) renderRemoveConfirm() string {
+	if m.selectedApp == nil {
+		m.screen = screenDashboard
+		return m.renderDashboard()
+	}
+	errorMsg := ""
+	if m.removeError != "" {
+		errorMsg = "\n" + ErrorDialogStyle.Render("  "+m.removeError)
+	}
+	return lipgloss.JoinVertical(lipgloss.Left,
+		"",
+		ErrorDialogStyle.Render(fmt.Sprintf("Remove application '%s'?", m.selectedApp.name)),
+		"",
+		PanelStyle.Render("This will stop the app, remove its Caddy route,\nand soft-delete its record. App data on disk\nwill be preserved."),
+		"",
+		HelpStyle.Render("[Y]es to remove  [N]o / [Esc] to cancel"),
+		errorMsg,
+	)
+}
+
+// renderFilter renders the filter/search input screen.
+func (m *Model) renderFilter() string {
+	content := lipgloss.JoinVertical(lipgloss.Left,
+		"",
+		TitleStyle.Render("Filter Apps"),
+		"",
+		"  Search: "+m.filterInput.View(),
+		"",
+		HelpStyle.Render("[Enter] apply filter  [Esc] cancel"),
+	)
+	return m.renderInPanel(content)
+}
+
+// renderInPanel wraps content in the standard panel layout.
+func (m *Model) renderInPanel(content string) string {
+	return lipgloss.JoinVertical(lipgloss.Left,
+		lipgloss.NewStyle().Padding(0, 2).Render(
+			PanelStyle.Render(content),
+		),
+	)
+}
+
 // renderSetupWizard renders the guided setup wizard.
 func (m *Model) renderSetupWizard() string {
 	var content string

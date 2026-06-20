@@ -972,7 +972,7 @@ Screen 5: Summary + next steps
 | `?` | Context help |
 | `Ctrl+C` | Exit to shell |
 | `r` | Refresh current view |
-| `n` | New (context-sensitive: new app, new key, etc.) |
+| `n` | New app (dashboard: 2-step wizard) |
 | `/` | Filter/search current list |
 
 ### 8.5 App Detail Screen
@@ -990,8 +990,23 @@ myapi                                          running ●
   Cert:      Valid until 30 Jan 2026 (77 days)
 
   [d] Deploy now   [l] Logs   [e] Env vars
-  [w] Watch config [x] Stop   [!] Remove
+  [w] Watch config [R] Restart   [x] Stop   [!] Remove
 ```
+
+**App Detail key bindings:**
+
+| Key | Action |
+|---|---|
+| `d` | Deploy app |
+| `l` | View last 50 log lines |
+| `e` | View env var keys |
+| `x` | Stop app |
+| `t` | Start app |
+| `R` | Restart app |
+| `!` | Remove app (with confirmation) |
+| `r` | Refresh app list and health |
+| `?` | Context help |
+| `Esc`/`q` | Back to dashboard |
 
 ---
 
@@ -1533,13 +1548,27 @@ Exit code conventions:
 - [ ] Webhook receiver (HTTP server via Caddy proxy)
 - [ ] GitHub and GitLab payload parsers
 
-### v0.4 — Interactive TUI
-- [ ] Setup wizard
-- [ ] Main dashboard
-- [ ] App detail screen
-- [ ] Deploy progress view
-- [ ] Log viewer
-- [ ] Env var editor
+### v0.4 — Interactive TUI *(released v0.4.0)*
+- [x] Setup wizard
+- [x] Main dashboard
+- [x] App detail screen
+- [x] Deploy progress view
+- [x] Log viewer
+- [x] Env var viewer
+- [x] Create new app (2-step wizard)
+- [x] Filter apps by name/domain/status
+
+### v0.4.1 — TUI Shortcut Fixes *(released v0.4.1)*
+- [x] `n` key bound to create app wizard (was missing handler)
+- [x] `!` Remove confirmation screen (was missing handler)
+- [x] `e` Env vars viewer (was missing handler)
+- [x] `l` Logs viewer (was no-op placeholder)
+- [x] `/` Filter text input (was no-op placeholder)
+- [x] `r`/`R` collision resolved (Restart changed to uppercase `R`)
+- [x] `R` Restart handler on App Detail (was missing from code)
+- [x] `r` Refresh handler added to App Detail screen
+- [x] Help overlay derived from keymap (no more hard-coded strings)
+- [x] TUI key binding tables documented in README
 
 ### v0.5 — Hardening & Polish
 - [ ] Complete error code coverage

@@ -201,20 +201,30 @@ health at a glance.
 | Key | Action |
 |---|---|
 | `↑/↓` or `j`/`k` | Navigate list |
-| `Enter` | Select app / confirm |
+| `Enter` | Select app / detail view |
+| `n` | Create new app (2-step wizard: name → repo URL) |
+| `/` | Filter apps by name, domain, or status |
+| `r` | Refresh app list and server health |
+| `d` | Deploy selected app |
+| `s` | Server health check |
+| `?` | Toggle help overlay |
 | `Esc`/`q` | Back / cancel |
-| `?` | Context help |
 | `Ctrl+C` | Exit to shell |
 
 **App detail screen:**
 
 | Key | Action |
 |---|---|
-| `s` | Start selected app |
-| `r` | Restart selected app |
-| `d` | Delete selected app |
-| `Esc`/`q` | Back to dashboard |
-| `?` | Context help |
+| `d` | Deploy app |
+| `l` | View last 50 log lines |
+| `e` | View environment variable keys |
+| `x` | Stop app |
+| `t` | Start app |
+| `R` | Restart app |
+| `!` | Remove app (with confirmation) |
+| `r` | Refresh app list and health |
+| `?` | Toggle help overlay |
+| `Esc`/`q` / `Back` | Back to dashboard |
 | `Ctrl+C` | Exit to shell |
 
 ### Agent keys

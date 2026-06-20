@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -24,6 +25,11 @@ const (
 	screenAppDetail
 	screenSetupWizard
 	screenHelpOverlay
+	screenNewApp
+	screenLogs
+	screenEnvVars
+	screenRemoveConfirm
+	screenFilter
 	screenQuit
 )
 
@@ -74,6 +80,32 @@ type Model struct {
 
 	// Setup wizard
 	provisioned bool
+
+	// New app creation
+	newAppStep       int
+	newAppNameInput  textinput.Model
+	newAppRepoInput  textinput.Model
+	newAppBranch     string
+	newAppDomain     string
+	newAppError      string
+	newAppSuccessMsg string
+
+	// Logs
+	logsContent string
+	logsError   string
+
+	// Env vars
+	envContent string
+	envError   string
+
+	// Remove confirmation
+	removeConfirmed bool
+	removeError     string
+
+	// Filter
+	filterInput   textinput.Model
+	filterQuery   string
+	filteredApps  []appSummaryItem
 }
 
 // appSummaryItem holds display data for one app row.
@@ -118,7 +150,8 @@ func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Enter, k.Back},
 		{k.Refresh, k.New, k.Deploy, k.Logs},
-		{k.Server, k.Help, k.Quit},
+		{k.Stop, k.Start, k.Restart, k.Remove},
+		{k.Env, k.Filter, k.Server, k.Help, k.Quit},
 	}
 }
 
@@ -180,8 +213,8 @@ var keys = keyMap{
 		key.WithHelp("t", "start"),
 	),
 	Restart: key.NewBinding(
-		key.WithKeys("r"),
-		key.WithHelp("r", "restart"),
+		key.WithKeys("R"),
+		key.WithHelp("R", "restart"),
 	),
 	Remove: key.NewBinding(
 		key.WithKeys("!"),
@@ -200,17 +233,36 @@ type configFile struct {
 
 // NewModel creates a new TUI model.
 func NewModel(db *state.DB, mgr *app.Manager, adminAPI string) *Model {
+	ti := textinput.New()
+	ti.Placeholder = "my-app-name"
+	ti.Focus()
+	ti.CharLimit = 50
+	ti.Width = 40
+
+	tiRepo := textinput.New()
+	tiRepo.Placeholder = "https://github.com/user/repo.git"
+	tiRepo.CharLimit = 200
+	tiRepo.Width = 60
+
+	fi := textinput.New()
+	fi.Placeholder = "Type to filter apps..."
+	fi.CharLimit = 50
+	fi.Width = 40
+
 	return &Model{
 		db:        db,
 		mgr:       mgr,
 		cfg:       &configFile{adminAPI: adminAPI},
-		screen:    screenSetupWizard, // default; checked on first update
+		screen:    screenSetupWizard,
 		help:      help.New(),
 		keys:      keys,
 		cursor:    0,
 		loading:   true,
 		wizardStep: 0,
 		provisioned: false,
+		newAppNameInput:  ti,
+		newAppRepoInput:  tiRepo,
+		filterInput:      fi,
 	}
 }
 
@@ -320,6 +372,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			break
 		}
 		m.apps = msg.apps
+		// Apply active filter
+		if m.filterQuery == "" {
+			m.filteredApps = make([]appSummaryItem, len(m.apps))
+			copy(m.filteredApps, m.apps)
+		} else {
+			m.filteredApps = nil
+			q := strings.ToLower(m.filterQuery)
+			for _, a := range m.apps {
+				if strings.Contains(strings.ToLower(a.name), q) ||
+					strings.Contains(strings.ToLower(a.domain), q) ||
+					strings.Contains(strings.ToLower(a.status), q) {
+					m.filteredApps = append(m.filteredApps, a)
+				}
+			}
+		}
 
 	case healthLoadedMsg:
 		m.loading = false
@@ -327,6 +394,45 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.provisioned = msg.health.provisioned
 		if m.provisioned && m.screen == screenSetupWizard {
 			m.screen = screenDashboard
+		}
+
+	case logsLoadedMsg:
+		m.loading = false
+		if msg.err != nil {
+			m.logsContent = fmt.Sprintf("Error loading logs: %v", msg.err)
+		} else {
+			m.logsContent = msg.content
+		}
+
+	case envLoadedMsg:
+		m.loading = false
+		if msg.err != nil {
+			m.envContent = fmt.Sprintf("Error loading env vars: %v", msg.err)
+		} else {
+			m.envContent = msg.content
+		}
+
+	case createAppResultMsg:
+		m.loading = false
+		if msg.err != nil {
+			m.newAppError = fmt.Sprintf("Failed to create app: %v", msg.err)
+		} else {
+			m.newAppSuccessMsg = fmt.Sprintf("✓ App '%s' created successfully", msg.name)
+		}
+		m.newAppStep = 2 // show result
+
+	case removeAppResultMsg:
+		m.loading = false
+		if msg.err != nil {
+			m.removeError = fmt.Sprintf("Failed to remove app: %v", msg.err)
+		} else {
+			m.screen = screenDashboard
+			m.selectedApp = nil
+			// Refresh app list
+			return m, tea.Batch(
+				loadAppsCmd(m.mgr),
+				loadHealthCmd(m.db),
+			)
 		}
 	}
 
@@ -336,6 +442,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // handleKey routes key presses based on the current screen.
 func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if key.Matches(msg, m.keys.Quit) {
+		// If on a sub-screen other than dashboard, go back instead of quitting
+		switch m.screen {
+		case screenNewApp, screenLogs, screenEnvVars, screenRemoveConfirm, screenFilter:
+			m.screen = screenDashboard
+			return m, nil
+		}
 		m.screen = screenQuit
 		return m, tea.Quit
 	}
@@ -359,6 +471,16 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case screenHelpOverlay:
 		m.screen = screenDashboard
 		return m, nil
+	case screenNewApp:
+		return m.handleNewAppKey(msg)
+	case screenLogs:
+		return m.handleLogsKey(msg)
+	case screenEnvVars:
+		return m.handleEnvKey(msg)
+	case screenRemoveConfirm:
+		return m.handleRemoveConfirmKey(msg)
+	case screenFilter:
+		return m.handleFilterKey(msg)
 	}
 
 	return m, nil
@@ -367,7 +489,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // handleDashboardKey handles key events on the dashboard.
 func (m *Model) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if key.Matches(msg, m.keys.Down) {
-		if m.cursor < len(m.apps)-1 {
+		if m.cursor < len(m.filteredApps)-1 {
 			m.cursor++
 		}
 	} else if key.Matches(msg, m.keys.Up) {
@@ -375,29 +497,45 @@ func (m *Model) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor--
 		}
 	} else if key.Matches(msg, m.keys.Enter) {
-		if len(m.apps) > 0 && m.cursor < len(m.apps) {
-			app := m.apps[m.cursor]
+		if len(m.filteredApps) > 0 && m.cursor < len(m.filteredApps) {
+			app := m.filteredApps[m.cursor]
 			m.selectedApp = &app
 			m.screen = screenAppDetail
 			m.appViewport.SetContent(m.renderAppDetailContent())
 		}
 	} else if key.Matches(msg, m.keys.Refresh) {
 		m.loading = true
+		m.filteredApps = nil
+		m.filterQuery = ""
+		m.filterInput.SetValue("")
+		m.cursor = 0
 		return m, tea.Batch(
 			loadAppsCmd(m.mgr),
 			loadHealthCmd(m.db),
 		)
 	} else if key.Matches(msg, m.keys.Deploy) {
-		if len(m.apps) > 0 && m.cursor < len(m.apps) {
-			// Trigger deploy via background
-			appName := m.apps[m.cursor].name
+		if len(m.filteredApps) > 0 && m.cursor < len(m.filteredApps) {
+			appName := m.filteredApps[m.cursor].name
 			return m, deployAppCmd(m.mgr, appName)
 		}
 	} else if key.Matches(msg, m.keys.Server) {
-		// Re-read server status
 		return m, loadHealthCmd(m.db)
 	} else if key.Matches(msg, m.keys.Filter) {
-		// Placeholder for filter mode
+		m.screen = screenFilter
+		m.filterInput.Focus()
+		m.filterInput.SetValue(m.filterQuery)
+		return m, nil
+	} else if key.Matches(msg, m.keys.New) {
+		m.screen = screenNewApp
+		m.newAppStep = 0
+		m.newAppNameInput.Focus()
+		m.newAppNameInput.SetValue("")
+		m.newAppRepoInput.SetValue("")
+		m.newAppBranch = ""
+		m.newAppDomain = ""
+		m.newAppError = ""
+		m.newAppSuccessMsg = ""
+		return m, nil
 	}
 
 	return m, nil
@@ -434,14 +572,39 @@ func (m *Model) handleAppDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, deployAppCmd(m.mgr, m.selectedApp.name)
 	}
 	if key.Matches(msg, m.keys.Logs) && m.selectedApp != nil {
-		// Logs placeholder — in real impl would show log viewer
-		return m, nil
+		m.logsContent = ""
+		m.logsError = ""
+		m.screen = screenLogs
+		return m, loadLogsCmd(m.mgr, m.selectedApp.name, 50)
 	}
 	if key.Matches(msg, m.keys.Stop) && m.selectedApp != nil {
 		return m, stopAppCmd(m.mgr, m.selectedApp.name)
 	}
 	if key.Matches(msg, m.keys.Start) && m.selectedApp != nil {
 		return m, startAppCmd(m.mgr, m.selectedApp.name)
+	}
+	if key.Matches(msg, m.keys.Remove) && m.selectedApp != nil {
+		m.screen = screenRemoveConfirm
+		m.removeConfirmed = false
+		m.removeError = ""
+		return m, nil
+	}
+	if key.Matches(msg, m.keys.Env) && m.selectedApp != nil {
+		m.envContent = ""
+		m.envError = ""
+		m.screen = screenEnvVars
+		return m, loadEnvCmd(m.mgr, m.selectedApp.name)
+	}
+	if key.Matches(msg, m.keys.Restart) && m.selectedApp != nil {
+		return m, restartAppCmd(m.mgr, m.selectedApp.name)
+	}
+	if key.Matches(msg, m.keys.Refresh) {
+		if m.selectedApp != nil {
+			return m, tea.Batch(
+				loadAppsCmd(m.mgr),
+				loadHealthCmd(m.db),
+			)
+		}
 	}
 
 	// Viewport scrolling
@@ -470,9 +633,245 @@ func startAppCmd(mgr *app.Manager, name string) tea.Cmd {
 	}
 }
 
+func restartAppCmd(mgr *app.Manager, name string) tea.Cmd {
+	return func() tea.Msg {
+		_, err := mgr.Restart(name, 60)
+		if err != nil {
+			return appActionMsg{appName: name, action: "restart", err: err}
+		}
+		return appActionMsg{appName: name, action: "restart", success: true}
+	}
+}
+
 type appActionMsg struct {
 	appName string
 	action  string
+	success bool
+	err     error
+}
+
+// handleNewAppKey handles key events on the new-app creation screen.
+func (m *Model) handleNewAppKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch m.newAppStep {
+	case 0:
+		// Step 0: entering app name
+		switch msg.String() {
+		case "esc":
+			m.screen = screenDashboard
+			return m, nil
+		case "enter":
+			name := m.newAppNameInput.Value()
+			if name == "" {
+				m.newAppError = "App name is required"
+				return m, nil
+			}
+			m.newAppError = ""
+			m.newAppStep = 1
+			m.newAppRepoInput.Focus()
+			return m, nil
+		default:
+			var cmd tea.Cmd
+			m.newAppNameInput, cmd = m.newAppNameInput.Update(msg)
+			return m, cmd
+		}
+	case 1:
+		// Step 1: entering repo URL
+		switch msg.String() {
+		case "esc":
+			m.screen = screenDashboard
+			return m, nil
+		case "enter":
+			name := m.newAppNameInput.Value()
+			repoURL := m.newAppRepoInput.Value()
+			if name == "" {
+				m.newAppError = "App name is required"
+				m.newAppStep = 0
+				m.newAppNameInput.Focus()
+				return m, nil
+			}
+			if repoURL == "" {
+				m.newAppError = "Git repository URL is required"
+				return m, nil
+			}
+			m.newAppError = ""
+			m.newAppSuccessMsg = "Creating app..."
+			return m, createAppCmd(m.mgr, name, repoURL)
+		default:
+			var cmd tea.Cmd
+			m.newAppRepoInput, cmd = m.newAppRepoInput.Update(msg)
+			return m, cmd
+		}
+	default:
+		// After creation — Esc goes back to dashboard
+		if msg.String() == "esc" || msg.String() == "enter" {
+			m.screen = screenDashboard
+			return m, nil
+		}
+		return m, nil
+	}
+}
+
+// handleLogsKey handles key events on the logs screen.
+func (m *Model) handleLogsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "esc" || msg.String() == "q" || key.Matches(msg, m.keys.Back) {
+		m.screen = screenAppDetail
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.appViewport, cmd = m.appViewport.Update(msg)
+	return m, cmd
+}
+
+// handleEnvKey handles key events on the env vars screen.
+func (m *Model) handleEnvKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "esc" || msg.String() == "q" || key.Matches(msg, m.keys.Back) {
+		m.screen = screenAppDetail
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.appViewport, cmd = m.appViewport.Update(msg)
+	return m, cmd
+}
+
+// handleRemoveConfirmKey handles key events on the remove confirmation screen.
+func (m *Model) handleRemoveConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "y", "Y":
+		if m.selectedApp != nil {
+			m.removeConfirmed = true
+			m.removeError = ""
+			return m, removeAppCmd(m.mgr, m.selectedApp.name)
+		}
+	case "n", "N", "esc":
+		m.screen = screenAppDetail
+		return m, nil
+	}
+	return m, nil
+}
+
+// handleFilterKey handles key events on the filter screen.
+func (m *Model) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.screen = screenDashboard
+		m.filterInput.Blur()
+		return m, nil
+	case "enter":
+		m.filterQuery = m.filterInput.Value()
+		// Update filtered list
+		m.filteredApps = nil
+		if m.filterQuery == "" {
+			m.filteredApps = make([]appSummaryItem, len(m.apps))
+			copy(m.filteredApps, m.apps)
+		} else {
+			q := strings.ToLower(m.filterQuery)
+			for _, a := range m.apps {
+				if strings.Contains(strings.ToLower(a.name), q) ||
+					strings.Contains(strings.ToLower(a.domain), q) ||
+					strings.Contains(strings.ToLower(a.status), q) {
+					m.filteredApps = append(m.filteredApps, a)
+				}
+			}
+		}
+		m.cursor = 0
+		m.screen = screenDashboard
+		m.filterInput.Blur()
+		return m, nil
+	default:
+		var cmd tea.Cmd
+		m.filterInput, cmd = m.filterInput.Update(msg)
+		return m, cmd
+	}
+}
+
+// loadLogsCmd returns a command that fetches app logs.
+func loadLogsCmd(mgr *app.Manager, appName string, lines int) tea.Cmd {
+	return func() tea.Msg {
+		if mgr == nil {
+			return logsLoadedMsg{appName: appName, content: "No manager available (nil)."}
+		}
+		var buf strings.Builder
+		err := mgr.Logs(appName, lines, false, &buf)
+		if err != nil {
+			return logsLoadedMsg{appName: appName, err: err}
+		}
+		return logsLoadedMsg{appName: appName, content: buf.String()}
+	}
+}
+
+// loadEnvCmd returns a command that fetches env vars for an app.
+func loadEnvCmd(mgr *app.Manager, appName string) tea.Cmd {
+	return func() tea.Msg {
+		if mgr == nil {
+			return envLoadedMsg{appName: appName, content: "No manager available (nil)."}
+		}
+		vars, err := mgr.EnvList(appName)
+		if err != nil {
+			return envLoadedMsg{appName: appName, err: err}
+		}
+		var b strings.Builder
+		for _, v := range vars {
+			b.WriteString(fmt.Sprintf("  %s  (updated %s)\n", v.Key, v.UpdatedAt))
+		}
+		if b.Len() == 0 {
+			b.WriteString("  No environment variables set.")
+		}
+		return envLoadedMsg{appName: appName, content: b.String()}
+	}
+}
+
+// createAppCmd returns a command that creates a new app.
+func createAppCmd(mgr *app.Manager, name, repoURL string) tea.Cmd {
+	return func() tea.Msg {
+		if mgr == nil {
+			return createAppResultMsg{name: name, err: fmt.Errorf("no manager available (nil)")}
+		}
+		_, err := mgr.Create(app.CreateOptions{
+			Name:    name,
+			RepoURL: repoURL,
+		})
+		if err != nil {
+			return createAppResultMsg{name: name, err: err}
+		}
+		return createAppResultMsg{name: name, success: true}
+	}
+}
+
+// removeAppCmd returns a command that removes an app.
+func removeAppCmd(mgr *app.Manager, appName string) tea.Cmd {
+	return func() tea.Msg {
+		if mgr == nil {
+			return removeAppResultMsg{appName: appName, err: fmt.Errorf("no manager available (nil)")}
+		}
+		_, err := mgr.Remove(appName, false)
+		if err != nil {
+			return removeAppResultMsg{appName: appName, err: err}
+		}
+		return removeAppResultMsg{appName: appName, success: true}
+	}
+}
+
+// Message types for new screens.
+type logsLoadedMsg struct {
+	appName string
+	content string
+	err     error
+}
+
+type envLoadedMsg struct {
+	appName string
+	content string
+	err     error
+}
+
+type createAppResultMsg struct {
+	name    string
+	success bool
+	err     error
+}
+
+type removeAppResultMsg struct {
+	appName string
 	success bool
 	err     error
 }
@@ -509,6 +908,16 @@ func (m *Model) View() string {
 		return m.renderSetupWizard()
 	case screenHelpOverlay:
 		return m.renderHelp()
+	case screenNewApp:
+		return m.renderNewApp()
+	case screenLogs:
+		return m.renderLogs()
+	case screenEnvVars:
+		return m.renderEnvVars()
+	case screenRemoveConfirm:
+		return m.renderRemoveConfirm()
+	case screenFilter:
+		return m.renderFilter()
 	case screenQuit:
 		return ""
 	}

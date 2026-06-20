@@ -244,8 +244,8 @@ func TestHelpToggle(t *testing.T) {
 	// Open help
 	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
 	view := m.View()
-	if !contains(view, "Navigation") || !contains(view, "Actions") {
-		t.Errorf("expected help content, got: %s", view[:min(len(view), 200)])
+	if !contains(view, "Navigation") || !contains(view, "new") {
+		t.Errorf("expected help content with Navigation and key bindings, got: %s", view[:min(len(view), 200)])
 	}
 }
 
@@ -415,6 +415,272 @@ func TestHealthIcon(t *testing.T) {
 	}
 	if healthIcon(false) != "✗" {
 		t.Error("expected X for healthIcon(false)")
+	}
+}
+
+func TestNewAppWizard(t *testing.T) {
+	m := NewModel(nil, nil, "http://localhost:2019")
+	_, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	_, _ = m.Update(healthLoadedMsg{
+		health: serverHealth{provisioned: true},
+	})
+	_, _ = m.Update(appsLoadedMsg{
+		apps: []appSummaryItem{
+			{name: "myapp", status: "running", domain: "myapp.example.com"},
+		},
+	})
+	m.screen = screenDashboard
+
+	// Press 'n' to start new app wizard
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	if m.screen != screenNewApp {
+		t.Fatalf("expected screenNewApp after 'n', got %d", m.screen)
+	}
+	if m.newAppStep != 0 {
+		t.Errorf("expected newAppStep 0, got %d", m.newAppStep)
+	}
+	if !m.newAppNameInput.Focused() {
+		t.Error("expected name input to be focused on step 0")
+	}
+
+	// Step 0: Enter app name
+	m.newAppNameInput.SetValue("test-app")
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		t.Error("expected nil cmd after entering name")
+	}
+	if m.newAppStep != 1 {
+		t.Errorf("expected newAppStep 1 after name entered, got %d", m.newAppStep)
+	}
+	if !m.newAppRepoInput.Focused() {
+		t.Error("expected repo input to be focused on step 1")
+	}
+
+	// Step 0: empty name should show error
+	m.newAppStep = 0
+	m.newAppRepoInput.Blur()
+	m.newAppNameInput.SetValue("")
+	m.newAppNameInput.Focus()
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.newAppError != "App name is required" {
+		t.Errorf("expected 'App name is required', got %q", m.newAppError)
+	}
+
+	// Esc from step 1 goes back to dashboard
+	m.screen = screenNewApp
+	m.newAppStep = 1
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.screen != screenDashboard {
+		t.Errorf("expected dashboard after Esc from wizard, got %d", m.screen)
+	}
+}
+
+func TestRemoveConfirm(t *testing.T) {
+	m := NewModel(nil, nil, "http://localhost:2019")
+	_, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	_, _ = m.Update(healthLoadedMsg{
+		health: serverHealth{provisioned: true},
+	})
+	_, _ = m.Update(appsLoadedMsg{
+		apps: []appSummaryItem{
+			{name: "myapp", status: "running", domain: "myapp.example.com"},
+		},
+	})
+	m.screen = screenDashboard
+
+	// Enter app detail
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.screen != screenAppDetail {
+		t.Fatalf("expected app detail, got screen %d", m.screen)
+	}
+
+	// Press '!' to remove
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'!'}})
+	if m.screen != screenRemoveConfirm {
+		t.Fatalf("expected screenRemoveConfirm after '!', got %d", m.screen)
+	}
+
+	// 'n' should cancel
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	if m.screen != screenAppDetail {
+		t.Errorf("expected back to app detail after 'n' cancel, got %d", m.screen)
+	}
+
+	// Go back and test 'esc' cancel too
+	m.screen = screenAppDetail
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'!'}})
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.screen != screenAppDetail {
+		t.Errorf("expected back to app detail after Esc cancel, got %d", m.screen)
+	}
+
+	// 'y' should confirm (triggers a command, but mgr is nil so it will produce an error)
+	m.screen = screenAppDetail
+	m.selectedApp = &appSummaryItem{name: "myapp", status: "running"}
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'!'}})
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	if cmd == nil {
+		t.Error("expected non-nil cmd after 'y' confirm removal")
+	}
+	if !m.removeConfirmed {
+		t.Error("expected removeConfirmed=true after 'y'")
+	}
+}
+
+func TestEnvVarsScreen(t *testing.T) {
+	m := NewModel(nil, nil, "http://localhost:2019")
+	_, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	_, _ = m.Update(healthLoadedMsg{
+		health: serverHealth{provisioned: true},
+	})
+	_, _ = m.Update(appsLoadedMsg{
+		apps: []appSummaryItem{
+			{name: "myapp", status: "running", domain: "myapp.example.com"},
+		},
+	})
+	m.screen = screenDashboard
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m.selectedApp = &appSummaryItem{name: "myapp", status: "running"}
+
+	// Press 'e' for env vars
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	if m.screen != screenEnvVars {
+		t.Fatalf("expected screenEnvVars after 'e', got %d", m.screen)
+	}
+	// Should trigger a command (calls loadEnvCmd which calls mgr.EnvList)
+	if cmd == nil {
+		t.Error("expected non-nil cmd after 'e' (load env vars)")
+	}
+
+	// Esc should return to app detail
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.screen != screenAppDetail {
+		t.Errorf("expected back to app detail after Esc from env, got %d", m.screen)
+	}
+}
+
+func TestLogsScreen(t *testing.T) {
+	m := NewModel(nil, nil, "http://localhost:2019")
+	_, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	_, _ = m.Update(healthLoadedMsg{
+		health: serverHealth{provisioned: true},
+	})
+	_, _ = m.Update(appsLoadedMsg{
+		apps: []appSummaryItem{
+			{name: "myapp", status: "running", domain: "myapp.example.com"},
+		},
+	})
+	m.screen = screenDashboard
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m.selectedApp = &appSummaryItem{name: "myapp", status: "running"}
+
+	// Press 'l' for logs
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	if m.screen != screenLogs {
+		t.Fatalf("expected screenLogs after 'l', got %d", m.screen)
+	}
+	if cmd == nil {
+		t.Error("expected non-nil cmd after 'l' (load logs)")
+	}
+
+	// Esc should return to app detail
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.screen != screenAppDetail {
+		t.Errorf("expected back to app detail after Esc from logs, got %d", m.screen)
+	}
+
+	// q should also return
+	m.screen = screenLogs
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	if m.screen != screenAppDetail {
+		t.Errorf("expected back to app detail after 'q' from logs, got %d", m.screen)
+	}
+}
+
+func TestFilterKey(t *testing.T) {
+	m := NewModel(nil, nil, "http://localhost:2019")
+	_, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	_, _ = m.Update(healthLoadedMsg{
+		health: serverHealth{provisioned: true},
+	})
+	_, _ = m.Update(appsLoadedMsg{
+		apps: []appSummaryItem{
+			{name: "alpha-app", status: "running", domain: "alpha.example.com"},
+			{name: "beta-svc", status: "stopped", domain: "beta.example.com"},
+			{name: "gamma-api", status: "running", domain: "gamma.example.com"},
+		},
+	})
+	m.screen = screenDashboard
+
+	// Press '/' for filter
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	if m.screen != screenFilter {
+		t.Fatalf("expected screenFilter after '/', got %d", m.screen)
+	}
+	if !m.filterInput.Focused() {
+		t.Error("expected filter input to be focused")
+	}
+
+	// Set filter value and press Enter
+	m.filterInput.SetValue("alpha")
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.screen != screenDashboard {
+		t.Errorf("expected back to dashboard after filter, got %d", m.screen)
+	}
+	if m.filterQuery != "alpha" {
+		t.Errorf("expected filter query 'alpha', got %q", m.filterQuery)
+	}
+	// filteredApps should only contain alpha-app
+	if len(m.filteredApps) != 1 || m.filteredApps[0].name != "alpha-app" {
+		t.Errorf("expected 1 filtered app 'alpha-app', got %d apps", len(m.filteredApps))
+	}
+
+	// Clear filter by emptying and pressing Enter
+	m.screen = screenFilter
+	m.filterInput.SetValue("")
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.filterQuery != "" {
+		t.Errorf("expected empty filter query, got %q", m.filterQuery)
+	}
+	if len(m.filteredApps) != 3 {
+		t.Errorf("expected all 3 apps unfiltered, got %d", len(m.filteredApps))
+	}
+
+	// Esc should cancel without applying
+	m.filterQuery = "test"
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	m.filterInput.SetValue("cancelled")
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.filterQuery != "test" {
+		t.Errorf("expected filter query unchanged after Esc, got %q", m.filterQuery)
+	}
+}
+
+func TestRestartKeyUppercase(t *testing.T) {
+	m := NewModel(nil, nil, "http://localhost:2019")
+	_, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	_, _ = m.Update(healthLoadedMsg{
+		health: serverHealth{provisioned: true},
+	})
+	_, _ = m.Update(appsLoadedMsg{
+		apps: []appSummaryItem{
+			{name: "myapp", status: "running", domain: "myapp.example.com"},
+		},
+	})
+	m.screen = screenDashboard
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m.selectedApp = &appSummaryItem{name: "myapp", status: "running"}
+
+	// 'r' on app detail should trigger Refresh (not Restart)
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	if cmd == nil {
+		t.Error("expected non-nil cmd from 'r' on app detail (Refresh)")
+	}
+
+	// 'R' on app detail should trigger Restart (uppercase)
+	_, cmd2 := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
+	if cmd2 == nil {
+		t.Error("expected non-nil cmd from 'R' on app detail (Restart)")
 	}
 }
 
